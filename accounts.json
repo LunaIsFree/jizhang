@@ -1,0 +1,12 @@
+{
+  "accounts": [
+    {
+      "name": "luna",
+      "label": "小郭",
+      "owner": "LunaIsFree",
+      "repo": "jizhang-luna",
+      "branch": "main",
+      "path": "vault.json"
+    }
+  ]
+}
