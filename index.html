@@ -1346,16 +1346,40 @@ async function cloudPush(silent){
     const newSha=await ghPutVault(session.owner,session.repo,session.path,session.branch,session.token,vault,sha);
     session.sha=newSha||sha;
     await persistRemember();
+    dirty = false;
     setSyncStatus("ok","已加密保存到云端 "+new Date().toLocaleTimeString("zh-CN"));
     return true;
   }catch(e){ setSyncStatus("err","推送失败："+e.message); return false; }
 }
+let dirty = false;
 function schedulePush(){
   if(!session||!session.token) return;
+  dirty = true;
   if(pushTimer) clearTimeout(pushTimer);
   setSyncStatus("busy","有改动待同步…");
-  pushTimer=setTimeout(()=>{ cloudPush(true); }, 1500);
+  pushTimer=setTimeout(()=>{ doPush(); }, 800);
 }
+async function doPush(){
+  if(!dirty) return;
+  const ok = await cloudPush(true);
+  if(ok){ dirty = false; }
+  else {
+    // 推送失败：保持 dirty，稍后自动重试
+    if(pushTimer) clearTimeout(pushTimer);
+    pushTimer=setTimeout(()=>{ doPush(); }, 5000);
+  }
+}
+// 页面隐藏/关闭前，尽力把未同步改动推上去
+function flushPush(){
+  if(!dirty || !session || !session.token) return;
+  try{ cloudPush(true); }catch(e){}
+}
+window.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="hidden") flushPush(); });
+window.addEventListener("pagehide", flushPush);
+window.addEventListener("beforeunload", (e)=>{
+  if(dirty){ flushPush(); }
+});
+
 
 // ---- 登录 / 退出 ----
 async function sessionUnlock(){
