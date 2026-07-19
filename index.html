@@ -201,15 +201,8 @@
   <!-- ===== 数据分析 Tab ===== -->
   <div id="tabAnalysis">
 
-  <!-- 时间范围快捷筛选 -->
+  <!-- 已激活筛选条件 -->
   <div class="rangebar">
-    <span class="seg" id="rangeSeg">
-      <button data-range="thisMonth">本月</button>
-      <button data-range="thisYear">今年</button>
-      <button data-range="2025">2025</button>
-      <button data-range="2026">2026</button>
-      <button data-range="all" class="on">全部</button>
-    </span>
     <span class="active-filters" id="activeFilters"></span>
   </div>
 
@@ -225,12 +218,12 @@
         <select id="anaPurpose"><option value="">全部</option></select>
       </div>
       <div class="fitem">
-        <label>起始日期</label>
-        <input type="date" id="anaFrom">
+        <label>起始月份</label>
+        <input type="month" id="anaFrom">
       </div>
       <div class="fitem">
-        <label>结束日期</label>
-        <input type="date" id="anaTo">
+        <label>结束月份</label>
+        <input type="month" id="anaTo">
       </div>
       <div class="fitem">
         <label>收支</label>
@@ -252,10 +245,6 @@
     <div class="panel">
       <h2>
         <span>用途占比</span>
-        <span class="ana-ctrl">
-          <span class="muted">年份</span>
-          <select id="chartYear"><option value="all">全部</option></select>
-        </span>
       </h2>
       <div class="chart-box"><canvas id="pieChart"></canvas></div>
     </div>
@@ -526,9 +515,7 @@ let sortKey = "date", sortDir = "desc";
 let pendingImport = null;
 let editingId = "";
 let pieChart, barChart;
-let activeRange = "all";
 let curPage = 1, pageSizeVal = 50;
-let chartYearVal = "all";
 let trendPurposeVal = "";
 let anaFlow = "all";
 
@@ -648,26 +635,6 @@ function refreshSelects(){
   trendPurpose.innerHTML='<option value="">全部用途</option>';
   state.purposes.forEach(v=>{ const o=document.createElement("option"); o.value=v; o.textContent=v; trendPurpose.appendChild(o); });
   if([...trendPurpose.options].some(o=>o.value===tp)) trendPurpose.value=tp;
-  // 图表年份下拉
-  const years=[...new Set(state.entries.map(e=>e.date.slice(0,4)))].filter(Boolean).sort();
-  const cy=chartYear.value;
-  chartYear.innerHTML='<option value="all">全部</option>';
-  years.forEach(y=>{ const o=document.createElement("option"); o.value=y; o.textContent=y+"年"; chartYear.appendChild(o); });
-  if([...chartYear.options].some(o=>o.value===cy)) chartYear.value=cy;
-}
-
-// ---- 快捷时间范围 → 起止日期 ----
-function rangeBounds(){
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth()+1).padStart(2,"0");
-  switch(activeRange){
-    case "thisMonth": return [`${y}-${m}-01`, `${y}-${m}-31`];
-    case "thisYear":  return [`${y}-01-01`, `${y}-12-31`];
-    case "2025":      return ["2025-01-01","2025-12-31"];
-    case "2026":      return ["2026-01-01","2026-12-31"];
-    default:          return [null,null];
-  }
 }
 
 // ---- 过滤：开销明细 tab ----
@@ -694,15 +661,14 @@ function filteredDetail(){
 
 // ---- 过滤：数据分析 tab ----
 function filteredAna(){
-  const p = anaPerson.value, u = anaPurpose.value, from = anaFrom.value, to = anaTo.value;
-  const [rFrom,rTo] = rangeBounds();
+  const p = anaPerson.value, u = anaPurpose.value;
+  const from = anaFrom.value, to = anaTo.value; // YYYY-MM
   return state.entries.filter(e=>{
     if(p && e.person!==p) return false;
     if(u && e.purpose!==u) return false;
-    if(rFrom && e.date < rFrom) return false;
-    if(rTo && e.date > rTo) return false;
-    if(from && e.date < from) return false;
-    if(to && e.date > to) return false;
+    const ym = (e.date||"").slice(0,7);
+    if(from && ym < from) return false;
+    if(to && ym > to) return false;
     if(anaFlow==="expense" && +e.amount<0) return false;
     if(anaFlow==="income" && +e.amount>=0) return false;
     return true;
@@ -778,8 +744,6 @@ function render(){
 // ---- 已激活筛选条件的可清除 chip ----
 function renderActiveFilters(){
   const chips = [];
-  const rangeLabel = {thisMonth:"本月",thisYear:"今年","2025":"2025年","2026":"2026年"}[activeRange];
-  if(rangeLabel) chips.push({label:"时间："+rangeLabel, key:"range"});
   if(anaPerson.value) chips.push({label:"人员："+anaPerson.value, key:"person"});
   if(anaPurpose.value) chips.push({label:"用途："+anaPurpose.value, key:"purpose"});
   if(anaFrom.value) chips.push({label:"起："+anaFrom.value, key:"from"});
@@ -827,9 +791,7 @@ function groupSum(rows, key){
 const PALETTE = ["#3370ff","#34c759","#ff9500","#af52de","#ff2d55","#5ac8fa","#ffcc00","#ff6482","#30b0c7","#a2845e","#8e8e93","#64d2ff","#bf5af2"];
 
 function renderCharts(rows){
-  // 图表年份过滤（独立于列表筛选）
-  let crows = rows;
-  if(chartYearVal!=="all") crows = rows.filter(e=>e.date.slice(0,4)===chartYearVal);
+  const crows = rows;
   // 饼图：用途
   const byPurpose = groupSum(crows,"purpose");
   const pLabels = Object.keys(byPurpose).sort((a,b)=>byPurpose[b]-byPurpose[a]);
@@ -876,10 +838,10 @@ function drawBar(labels,data){
         if(!els.length) return;
         const label = labels[els[0].index];
         if(barMode==="month" || barMode==="purposeTrend"){
-          // 下钻到该月：设置起止日期
-          const already = anaFrom.value===label+"-01";
+          // 下钻到该月：设置起止月份
+          const already = anaFrom.value===label && anaTo.value===label;
           if(already){ anaFrom.value=""; anaTo.value=""; }
-          else { anaFrom.value=label+"-01"; anaTo.value=label+"-31"; }
+          else { anaFrom.value=label; anaTo.value=label; }
         } else {
           anaPerson.value = (anaPerson.value===label)? "" : label;
         }
@@ -947,16 +909,8 @@ tbody.addEventListener("click",ev=>{
 [qSearch,qPerson,qPurpose,qFrom,qTo].forEach(el=>el.addEventListener("input",()=>{ curPage=1; render(); }));
 qReset.onclick=()=>{
   qSearch.value="";qPerson.value="";qPurpose.value="";qFrom.value="";qTo.value="";
-  activeRange="all"; syncRangeSeg(); curPage=1; render();
+  curPage=1; render();
 };
-
-// ---- 快捷时间范围 ----
-function syncRangeSeg(){
-  rangeSeg.querySelectorAll("button").forEach(b=>b.classList.toggle("on", b.dataset.range===activeRange));
-}
-rangeSeg.querySelectorAll("button").forEach(b=>{
-  b.onclick=()=>{ activeRange=b.dataset.range; syncRangeSeg(); curPage=1; render(); };
-});
 
 // ---- 分析区筛选 ----
 [anaPerson,anaPurpose,anaFrom,anaTo].forEach(el=>el.addEventListener("input",()=>{ render(); }));
@@ -969,7 +923,7 @@ anaFlow_el.querySelectorAll("button").forEach(b=>{
 });
 anaReset.onclick=()=>{
   anaPerson.value="";anaPurpose.value="";anaFrom.value="";anaTo.value="";
-  anaFlow="all"; syncAnaFlow(); activeRange="all"; syncRangeSeg(); render();
+  anaFlow="all"; syncAnaFlow(); render();
 };
 
 // ---- 顶部 Tab 切换 ----
@@ -986,7 +940,6 @@ tabbar.querySelectorAll("button").forEach(b=>{
 activeFilters.addEventListener("click",ev=>{
   const key=ev.target.dataset.clear; if(!key) return;
   switch(key){
-    case "range": activeRange="all"; syncRangeSeg(); break;
     case "person": anaPerson.value=""; break;
     case "purpose": anaPurpose.value=""; break;
     case "from": anaFrom.value=""; break;
@@ -1136,7 +1089,6 @@ doImport.onclick=()=>{
 };
 
 // ---- 分析下拉联动 ----
-chartYear.onchange=()=>{ chartYearVal=chartYear.value; render(); };
 trendPurpose.onchange=()=>{ trendPurposeVal = trendPurpose.value||""; render(); };
 
 // ---- 定期开支 ----
