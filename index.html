@@ -291,10 +291,6 @@
           <input type="date" id="fDate" required>
         </div>
         <div>
-          <label>记录时间</label>
-          <input type="date" id="fRecordedAt">
-        </div>
-        <div>
           <label>金额 (¥)</label>
           <input type="number" id="fAmount" step="0.01" min="0" placeholder="0.00" required>
         </div>
@@ -559,6 +555,7 @@ function save(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 function fmt(n){ return "¥"+Number(n).toLocaleString("zh-CN",{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function todayStr(){ const d=new Date(); return d.toISOString().slice(0,10); }
+function nowStr(){ const d=new Date(); const p=n=>String(n).padStart(2,"0"); return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+" "+p(d.getHours())+":"+p(d.getMinutes())+":"+p(d.getSeconds()); }
 
 // ---- 定期开支引擎 ----
 function pad2(n){ return String(n).padStart(2,"0"); }
@@ -895,19 +892,19 @@ function drawBar(labels,data){
 
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
-// ---- 表单：新增/编辑 ----
+// ---- 表单：新增 ----
 entryForm.addEventListener("submit",ev=>{
   ev.preventDefault();
-  const rec={ id: editId.value||uid(), date:fDate.value, recordedAt:(fRecordedAt.value||todayStr()), amount:parseFloat(fAmount.value),
+  const rec={ id: editId.value||uid(), date:fDate.value, recordedAt:nowStr(), amount:parseFloat(fAmount.value),
     person:fPerson.value, purpose:fPurpose.value, note:fNote.value.trim() };
   if(editId.value){
     const i=state.entries.findIndex(e=>e.id===editId.value);
-    if(i>-1) state.entries[i]=rec;
+    if(i>-1) state.entries[i]=Object.assign({}, state.entries[i], rec);
   } else { state.entries.push(rec); }
   save(); resetForm(); render();
 });
 function resetForm(){
-  editId.value=""; entryForm.reset(); fDate.value=todayStr(); fRecordedAt.value=todayStr();
+  editId.value=""; entryForm.reset(); fDate.value=todayStr();
   formTitle.textContent="记一笔"; submitBtn.textContent="保存记录"; cancelEdit.classList.add("hidden");
 }
 cancelEdit.onclick=resetForm;
@@ -1109,7 +1106,7 @@ function parseImport(name,text){
 }
 function normalize(o){
   return { id:o.id||uid(), date:(o.date||todayStr()).slice(0,10),
-    recordedAt:(o.recordedAt||"").slice(0,10),
+    recordedAt:(o.recordedAt||"").trim(),
     amount: isNaN(parseFloat(o.amount))?0:parseFloat(o.amount),
     person:o.person||"", purpose:o.purpose||"", note:o.note||"" };
 }
