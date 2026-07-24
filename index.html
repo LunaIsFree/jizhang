@@ -148,6 +148,8 @@
   .lg-hint{font-size:12px;color:var(--sub);line-height:1.6;background:#f6f8fa;border-radius:8px;padding:10px 12px;margin-top:10px}
   .lg-hint code{background:#eceff3;padding:1px 5px;border-radius:4px}
   tr.editing{background:var(--accent-soft,#eef3ff)}
+  tr.flash>td{animation:rowflash 1.2s ease-out}
+  @keyframes rowflash{0%{background:#fff3bf}100%{background:transparent}}
   .ied{width:100%;box-sizing:border-box;padding:5px 7px;font-size:13px;border:1px solid var(--border,#d0d5dd);border-radius:7px;background:#fff}
   .ied:focus{outline:none;border-color:var(--accent,#2f6fed);box-shadow:0 0 0 2px var(--accent-soft,#dbe6ff)}
   .ied.amt{text-align:right}
@@ -671,6 +673,31 @@ function filteredAna(){
   });
 }
 
+// ---- 渲染时锚定当前行，避免列表跳动 ----
+function renderKeepingRow(id, fn){
+  let beforeTop=null;
+  if(id){
+    const el=tbody.querySelector('tr[data-id="'+CSS.escape(id)+'"]');
+    if(el) beforeTop=el.getBoundingClientRect().top;
+  }
+  fn();
+  if(id!=null && beforeTop!=null){
+    const el2=tbody.querySelector('tr[data-id="'+CSS.escape(id)+'"]');
+    if(el2){
+      const afterTop=el2.getBoundingClientRect().top;
+      const delta=afterTop-beforeTop;
+      if(delta) window.scrollBy(0, delta);
+    }
+  }
+}
+function flashRow(id){
+  if(!id) return;
+  requestAnimationFrame(()=>{
+    const el=tbody.querySelector('tr[data-id="'+CSS.escape(id)+'"]');
+    if(el){ el.classList.add("flash"); setTimeout(()=>el.classList.remove("flash"), 1200); }
+  });
+}
+
 // ---- 渲染 ----
 function render(){
   refreshSelects();
@@ -688,6 +715,7 @@ function render(){
   const frag = document.createDocumentFragment();
   pageRows.forEach(e=>{
     const tr=document.createElement("tr");
+    tr.dataset.id=e.id;
     if(e.id===editingId){
       tr.className="editing";
       const purposeOpts=state.purposes.map(v=>`<option value="${escapeHtml(v)}"${v===e.purpose?" selected":""}>${escapeHtml(v)}</option>`).join("");
@@ -871,9 +899,10 @@ tbody.addEventListener("click",ev=>{
   const ed=ev.target.dataset.edit, dl=ev.target.dataset.del;
   const sv=ev.target.dataset.save, cc=ev.target.dataset.cancel;
   if(ed){
-    editingId=ed; render();
+    editingId=ed;
+    renderKeepingRow(ed, render);
     const row=tbody.querySelector("tr.editing");
-    if(row){ row.scrollIntoView({behavior:"smooth",block:"nearest"}); const amt=row.querySelector("#ied-amount"); if(amt) amt.focus(); }
+    if(row){ const amt=row.querySelector("#ied-amount"); if(amt) amt.focus(); }
     return;
   }
   if(sv){
@@ -890,10 +919,12 @@ tbody.addEventListener("click",ev=>{
       note:g("ied-note").value.trim(),
       amount:amtVal
     });
-    editingId=""; save(); render();
+    editingId=""; save();
+    renderKeepingRow(sv, render);
+    flashRow(sv);
     return;
   }
-  if(cc){ editingId=""; render(); return; }
+  if(cc){ editingId=""; renderKeepingRow(cc, render); return; }
   if(dl){
     if(confirm("确定删除这条记录吗？")){
       state.entries=state.entries.filter(x=>x.id!==dl); save(); render();
