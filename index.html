@@ -147,6 +147,17 @@
   .lg-setup.hidden{display:none!important}
   .lg-hint{font-size:12px;color:var(--sub);line-height:1.6;background:#f6f8fa;border-radius:8px;padding:10px 12px;margin-top:10px}
   .lg-hint code{background:#eceff3;padding:1px 5px;border-radius:4px}
+  .quick-pick{width:100%;display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px}
+  .quick-pick .qp-btn{padding:4px 10px;font-size:12px;border-radius:16px;background:#eef0f3;color:var(--text);border:none;cursor:pointer;transition:.15s}
+  .quick-pick .qp-btn:hover{background:#e2e5ea}
+  .quick-pick .qp-btn.on{background:var(--accent);color:#fff}
+  .quick-pick .qp-sep{font-size:11px;color:var(--sub);align-self:center;margin:0 2px}
+  .rec-panel{margin-bottom:12px;padding:12px 16px}
+  .rec-panel-body{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+  .rec-panel-body .ro-item{display:flex;align-items:center;gap:10px;background:#f7f8fa;border-radius:8px;padding:8px 10px;font-size:13px}
+  .rec-panel-body .ro-item .ro-name{font-weight:600;flex:1;min-width:0}
+  .rec-panel-body .ro-item .ro-meta{color:var(--sub);font-size:12px}
+  .rec-panel-body .ro-item .ro-amt{font-weight:700;white-space:nowrap;margin-left:auto}
   tr.editing{background:var(--accent-soft,#eef3ff)}
   tr.flash>td{animation:rowflash 1.2s ease-out}
   @keyframes rowflash{0%{background:#fff3bf}100%{background:transparent}}
@@ -226,6 +237,7 @@
   <!-- 分析区筛选 -->
   <div class="panel" style="margin-bottom:20px">
     <div class="ana-filters">
+      <div class="quick-pick" id="anaQuickPick"></div>
       <div class="fitem">
         <label>人员</label>
         <select id="anaPerson"><option value="">全部</option></select>
@@ -295,10 +307,20 @@
       <input type="number" id="fAmount" step="0.01" min="0" placeholder="金额 ¥" class="qadd-amt" required>
       <select id="fPerson" class="qadd-sel" required></select>
       <select id="fPurpose" class="qadd-sel" required></select>
+      <select id="fPay" class="qadd-sel"><option value="">支付方式</option><option>微信</option><option>支付宝</option><option>现金</option><option>银行卡</option></select>
       <input type="text" id="fNote" class="qadd-note" placeholder="备注（选填）">
       <button type="submit" class="primary sm" id="submitBtn">保存</button>
       <button type="button" class="ghost sm hidden" id="cancelEdit">取消</button>
     </form>
+  </div>
+
+  <!-- 定期开支概览（折叠面板） -->
+  <div class="panel rec-panel" id="recOverviewPanel" style="display:none">
+    <h2 class="rec-panel-hd" id="recOverviewHd" style="cursor:pointer;user-select:none;margin-bottom:0">
+      <span id="recOverviewTitle">定期开支 · 0 项运行中</span>
+      <span class="muted" style="font-size:12px" id="recOverviewToggle">▸ 展开</span>
+    </h2>
+    <div class="rec-panel-body hidden" id="recOverviewBody"></div>
   </div>
 
   <!-- 记录列表 -->
@@ -307,6 +329,7 @@
       <span>开销明细 <span class="muted" id="listCount"></span></span>
     </h2>
     <div class="filters">
+      <div class="quick-pick" id="qQuickPick"></div>
       <div class="fitem">
         <label>搜索备注/用途</label>
         <input type="text" id="qSearch" placeholder="关键词…">
@@ -318,6 +341,10 @@
       <div class="fitem">
         <label>用途</label>
         <select id="qPurpose"><option value="">全部</option></select>
+      </div>
+      <div class="fitem">
+        <label>支付方式</label>
+        <select id="qPay"><option value="">全部</option><option>微信</option><option>支付宝</option><option>现金</option><option>银行卡</option></select>
       </div>
       <div class="fitem">
         <label>起始日期</label>
@@ -337,6 +364,7 @@
             <th data-sort="recordedAt">记录时间</th>
             <th data-sort="purpose">用途</th>
             <th data-sort="person">人员</th>
+            <th data-sort="pay">支付方式</th>
             <th class="note">备注</th>
             <th data-sort="amount" style="text-align:right">金额</th>
             <th></th>
@@ -638,10 +666,11 @@ function refreshSelects(){
 // ---- 过滤：开销明细 tab ----
 function filteredDetail(){
   const q = qSearch.value.trim().toLowerCase();
-  const p = qPerson.value, u = qPurpose.value, from = qFrom.value, to = qTo.value;
+  const p = qPerson.value, u = qPurpose.value, py = qPay.value, from = qFrom.value, to = qTo.value;
   let rows = state.entries.filter(e=>{
     if(p && e.person!==p) return false;
     if(u && e.purpose!==u) return false;
+    if(py && (e.pay||"")!==py) return false;
     if(from && e.date < from) return false;
     if(to && e.date > to) return false;
     if(q && !((e.note||"").toLowerCase().includes(q) || (e.purpose||"").toLowerCase().includes(q))) return false;
@@ -720,11 +749,13 @@ function render(){
       tr.className="editing";
       const purposeOpts=state.purposes.map(v=>`<option value="${escapeHtml(v)}"${v===e.purpose?" selected":""}>${escapeHtml(v)}</option>`).join("");
       const personOpts=state.persons.map(v=>`<option value="${escapeHtml(v)}"${v===e.person?" selected":""}>${escapeHtml(v)}</option>`).join("");
+      const payOpts=["","微信","支付宝","现金","银行卡"].map(v=>`<option value="${v}"${v===(e.pay||"")?" selected":""}>${v||"—"}</option>`).join("");
       tr.innerHTML =
         `<td><input class="ied" id="ied-date" type="date" value="${escapeHtml(e.date||"")}"></td>`+
         `<td><input class="ied" id="ied-rec" type="text" value="${escapeHtml(e.recordedAt||"")}" placeholder="YYYY-MM-DD HH:mm:ss"></td>`+
         `<td><select class="ied" id="ied-purpose">${purposeOpts}</select></td>`+
         `<td><select class="ied" id="ied-person">${personOpts}</select></td>`+
+        `<td><select class="ied" id="ied-pay">${payOpts}</select></td>`+
         `<td><input class="ied" id="ied-note" type="text" value="${escapeHtml(e.note||"")}"></td>`+
         `<td><input class="ied amt" id="ied-amount" type="number" step="0.01" value="${e.amount}"></td>`+
         `<td><div class="rowbtns">`+
@@ -737,6 +768,7 @@ function render(){
         `<td>${e.recordedAt||'<span style="color:var(--muted,#999)">—</span>'}</td>`+
         `<td><span class="tag">${e.purpose||"-"}</span></td>`+
         `<td><span class="tag gray">${e.person||"-"}</span></td>`+
+        `<td><span class="tag gray">${e.pay||"-"}</span></td>`+
         `<td class="note">${escapeHtml(e.note||"")}${e.recId?' <span class="badge">定期</span>':''}</td>`+
         `<td class="amt">${fmt(e.amount)}</td>`+
         `<td><div class="rowbtns">`+
@@ -763,6 +795,8 @@ function render(){
   const anaRows = filteredAna();
   renderStats(anaRows);
   renderCharts(anaRows);
+  renderQuickPicks();
+  renderRecOverview();
 }
 
 // ---- 已激活筛选条件的可清除 chip ----
@@ -882,7 +916,7 @@ function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<"
 entryForm.addEventListener("submit",ev=>{
   ev.preventDefault();
   const rec={ id: editId.value||uid(), date:fDate.value, recordedAt:nowStr(), amount:parseFloat(fAmount.value),
-    person:fPerson.value, purpose:fPurpose.value, note:fNote.value.trim() };
+    person:fPerson.value, purpose:fPurpose.value, pay:fPay.value, note:fNote.value.trim() };
   if(editId.value){
     const i=state.entries.findIndex(e=>e.id===editId.value);
     if(i>-1) state.entries[i]=Object.assign({}, state.entries[i], rec);
@@ -916,6 +950,7 @@ tbody.addEventListener("click",ev=>{
       recordedAt:(g("ied-rec").value||"").trim(),
       purpose:g("ied-purpose").value,
       person:g("ied-person").value,
+      pay:g("ied-pay").value,
       note:g("ied-note").value.trim(),
       amount:amtVal
     });
@@ -933,9 +968,9 @@ tbody.addEventListener("click",ev=>{
 });
 
 // ---- 筛选 ----
-[qSearch,qPerson,qPurpose,qFrom,qTo].forEach(el=>el.addEventListener("input",()=>{ curPage=1; render(); }));
+[qSearch,qPerson,qPurpose,qPay,qFrom,qTo].forEach(el=>el.addEventListener("input",()=>{ curPage=1; render(); }));
 qReset.onclick=()=>{
-  qSearch.value="";qPerson.value="";qPurpose.value="";qFrom.value="";qTo.value="";
+  qSearch.value="";qPerson.value="";qPurpose.value="";qPay.value="";qFrom.value="";qTo.value="";
   curPage=1; render();
 };
 
@@ -952,6 +987,72 @@ anaReset.onclick=()=>{
   anaPerson.value="";anaPurpose.value="";anaFrom.value="";anaTo.value="";
   anaFlow="all"; syncAnaFlow(); render();
 };
+
+// ---- 快速选年/月 ----
+function getYears(){
+  const s=new Set(); state.entries.forEach(e=>{ if(e.date) s.add(e.date.slice(0,4)); });
+  return [...s].sort();
+}
+let qpYear="", anaQpYear="";
+function lastDay(y,m){ return new Date(+y, +m, 0).getDate(); }
+function renderQuickPicks(){
+  const years=getYears(); if(!years.length) return;
+  // detail tab
+  let h='<span class="qp-sep">年：</span>';
+  years.forEach(y=>{ h+=`<button class="qp-btn${y===qpYear?' on':''}" data-qpy="${y}">${y}</button>`; });
+  if(qpYear){
+    h+='<span class="qp-sep" style="margin-left:6px">月：</span>';
+    for(let m=1;m<=12;m++){
+      const mm=String(m).padStart(2,'0');
+      const from=qpYear+"-"+mm+"-01", to=qpYear+"-"+mm+"-"+lastDay(qpYear,m);
+      const isOn=(qFrom.value===from && qTo.value===to);
+      h+=`<button class="qp-btn${isOn?' on':''}" data-qpm="${mm}">${m}月</button>`;
+    }
+  }
+  qQuickPick.innerHTML=h;
+  // analysis tab
+  let h2='<span class="qp-sep">年：</span>';
+  years.forEach(y=>{ h2+=`<button class="qp-btn${y===anaQpYear?' on':''}" data-anay="${y}">${y}</button>`; });
+  if(anaQpYear){
+    h2+='<span class="qp-sep" style="margin-left:6px">月：</span>';
+    for(let m=1;m<=12;m++){
+      const mm=String(m).padStart(2,'0');
+      const ym=anaQpYear+"-"+mm;
+      const isOn=(anaFrom.value===ym && anaTo.value===ym);
+      h2+=`<button class="qp-btn${isOn?' on':''}" data-anam="${mm}">${m}月</button>`;
+    }
+  }
+  anaQuickPick.innerHTML=h2;
+}
+qQuickPick.addEventListener("click",ev=>{
+  const y=ev.target.dataset.qpy, m=ev.target.dataset.qpm;
+  if(y){ qpYear=(qpYear===y?"":y); if(qpYear){qFrom.value=qpYear+"-01-01";qTo.value=qpYear+"-12-31";}else{qFrom.value="";qTo.value="";} curPage=1; render(); }
+  if(m){ const from=qpYear+"-"+m+"-01", to=qpYear+"-"+m+"-"+lastDay(qpYear,+m); if(qFrom.value===from&&qTo.value===to){qFrom.value=qpYear+"-01-01";qTo.value=qpYear+"-12-31";}else{qFrom.value=from;qTo.value=to;} curPage=1; render(); }
+});
+anaQuickPick.addEventListener("click",ev=>{
+  const y=ev.target.dataset.anay, m=ev.target.dataset.anam;
+  if(y){ anaQpYear=(anaQpYear===y?"":y); if(anaQpYear){anaFrom.value=anaQpYear+"-01";anaTo.value=anaQpYear+"-12";}else{anaFrom.value="";anaTo.value="";} render(); }
+  if(m){ const ym=anaQpYear+"-"+m; if(anaFrom.value===ym&&anaTo.value===ym){anaFrom.value=anaQpYear+"-01";anaTo.value=anaQpYear+"-12";}else{anaFrom.value=ym;anaTo.value=ym;} render(); }
+});
+
+// ---- 定期开支概览面板 ----
+function renderRecOverview(){
+  const today=todayStr().slice(0,7);
+  const active=state.recurring.filter(r=>!r.paused && (!r.end || r.end>=today));
+  if(!active.length){ recOverviewPanel.style.display="none"; return; }
+  recOverviewPanel.style.display="";
+  recOverviewTitle.textContent=`定期开支 · ${active.length} 项运行中`;
+  recOverviewBody.innerHTML=active.map(r=>`<div class="ro-item">
+    <span class="ro-name">${escapeHtml(r.name||"(未命名)")}</span>
+    <span class="ro-meta">${escapeHtml(freqDesc(r))} · ${escapeHtml(r.person||"")} · ${escapeHtml(r.purpose||"")}</span>
+    <span class="ro-amt">${fmt(r.amount||0)}</span>
+  </div>`).join("");
+}
+recOverviewHd.addEventListener("click",()=>{
+  const b=recOverviewBody;
+  b.classList.toggle("hidden");
+  recOverviewToggle.textContent=b.classList.contains("hidden")?"▸ 展开":"▾ 收起";
+});
 
 // ---- 顶部 Tab 切换 ----
 tabbar.querySelectorAll("button").forEach(b=>{
