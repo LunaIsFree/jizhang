@@ -190,6 +190,8 @@
       <input type="text" id="lgSetupOwner" placeholder="LunaIsFree">
       <label>数据仓库名 (repo)</label>
       <input type="text" id="lgSetupRepo" placeholder="jizhang-luna">
+      <label>数据文件名（可选，默认 vault.json）</label>
+      <input type="text" id="lgSetupPath" placeholder="vault.json">
       <label>写入令牌 Personal Access Token</label>
       <input type="password" id="lgSetupToken" placeholder="github_pat_...（对该仓库 Contents 有读写权限）">
       <label>设置登录密码（建议 8 位以上，别用纯数字）</label>
@@ -365,6 +367,7 @@
             <th data-sort="purpose">用途</th>
             <th data-sort="person">人员</th>
             <th data-sort="pay">支付方式</th>
+            <th data-sort="by">录入人</th>
             <th class="note">备注</th>
             <th data-sort="amount" style="text-align:right">金额</th>
             <th></th>
@@ -513,7 +516,7 @@
 <div class="modal-bg" id="importModal">
   <div class="modal">
     <h3>导入数据</h3>
-    <p class="muted">支持导入本软件导出的 CSV / JSON。CSV 列顺序：日期, 金额, 人员, 用途, 备注。</p>
+    <p class="muted">支持导入本软件导出的 CSV / JSON。CSV 按表头名称匹配列：日期, 记录时间, 金额, 人员, 用途, 支付方式, 录入人, 备注。</p>
     <div style="margin:14px 0">
       <button class="ghost" id="pickFile">选择文件</button>
       <span class="muted" id="fileName" style="margin-left:8px"></span>
@@ -632,7 +635,7 @@ function generateRecurring(){
     datesForRule(r,today).forEach(dt=>{
       const key=r.id+"@"+dt;
       if(existing.has(key)) return;
-      state.entries.push({ id:uid(), date:dt, amount:Number(r.amount)||0, person:r.person||"", purpose:r.purpose||"", note:r.name||"", recId:r.id });
+      state.entries.push({ id:uid(), date:dt, amount:Number(r.amount)||0, person:r.person||"", purpose:r.purpose||"", pay:r.pay||"", by:(session?(session.label||session.name):""), note:r.name||"", recId:r.id });
       existing.add(key); added++;
     });
   });
@@ -756,6 +759,7 @@ function render(){
         `<td><select class="ied" id="ied-purpose">${purposeOpts}</select></td>`+
         `<td><select class="ied" id="ied-person">${personOpts}</select></td>`+
         `<td><select class="ied" id="ied-pay">${payOpts}</select></td>`+
+        `<td><span class="tag">${escapeHtml(e.by||"—")}</span></td>`+
         `<td><input class="ied" id="ied-note" type="text" value="${escapeHtml(e.note||"")}"></td>`+
         `<td><input class="ied amt" id="ied-amount" type="number" step="0.01" value="${e.amount}"></td>`+
         `<td><div class="rowbtns">`+
@@ -769,6 +773,7 @@ function render(){
         `<td><span class="tag">${e.purpose||"-"}</span></td>`+
         `<td><span class="tag gray">${e.person||"-"}</span></td>`+
         `<td><span class="tag gray">${e.pay||"-"}</span></td>`+
+        `<td><span class="tag gray">${escapeHtml(e.by||"—")}</span></td>`+
         `<td class="note">${escapeHtml(e.note||"")}${e.recId?' <span class="badge">定期</span>':''}</td>`+
         `<td class="amt">${fmt(e.amount)}</td>`+
         `<td><div class="rowbtns">`+
@@ -920,7 +925,7 @@ entryForm.addEventListener("submit",ev=>{
   if(editId.value){
     const i=state.entries.findIndex(e=>e.id===editId.value);
     if(i>-1) state.entries[i]=Object.assign({}, state.entries[i], rec);
-  } else { state.entries.push(rec); }
+  } else { rec.by = session ? (session.label||session.name) : ""; state.entries.push(rec); }
   save(); resetForm(); render();
 });
 function resetForm(){
@@ -1134,9 +1139,9 @@ function download(name,content,type){
 }
 btnExportJson.onclick=()=>download("记账数据_"+todayStr()+".json", JSON.stringify(state,null,2),"application/json");
 btnExportCsv.onclick=()=>{
-  const head=["日期","记录时间","金额","人员","用途","备注"];
+  const head=["日期","记录时间","金额","人员","用途","支付方式","录入人","备注"];
   const lines=[head.join(",")].concat(filtered().map(e=>
-    [e.date,e.recordedAt||"",e.amount,e.person,e.purpose,csvCell(e.note||"")].join(",")));
+    [e.date,e.recordedAt||"",e.amount,e.person,e.purpose,e.pay||"",e.by||"",csvCell(e.note||"")].join(",")));
   download("记账明细_"+todayStr()+".csv","\ufeff"+lines.join("\r\n"),"text/csv;charset=utf-8");
 };
 function csvCell(s){ s=String(s); return /[",\n]/.test(s)? '"'+s.replace(/"/g,'""')+'"' : s; }
@@ -1164,7 +1169,7 @@ function parseImport(name,text){
   const rows=csvParse(text); if(!rows.length) return [];
   let start=0; const h=rows[0].map(x=>x.trim());
   const hasHeader = h.includes("日期")||h.toString().includes("金额");
-  let idx={date:0,recordedAt:-1,amount:1,person:2,purpose:3,note:4};
+  let idx={date:0,recordedAt:-1,amount:1,person:2,purpose:3,note:4,pay:-1,by:-1};
   if(hasHeader){
     start=1;
     const find=names=>{ for(const n of names){ const i=h.indexOf(n); if(i>-1) return i; } return -1; };
@@ -1174,6 +1179,8 @@ function parseImport(name,text){
       amount: find(["金额","金额 (¥)","金额(元)"]),
       person: find(["人员"]),
       purpose: find(["用途"]),
+      pay: find(["支付方式"]),
+      by: find(["录入人"]),
       note: find(["备注"])
     };
     if(idx.date<0) idx.date=0;
@@ -1182,14 +1189,15 @@ function parseImport(name,text){
   return rows.slice(start).filter(r=>r.length>=2 && (r[idx.date]||r[idx.amount])).map(r=>normalize({
     date:(r[idx.date]||"").trim().slice(0,10),
     recordedAt: idx.recordedAt>-1?(r[idx.recordedAt]||"").trim().slice(0,10):"",
-    amount:r[idx.amount], person:(r[idx.person]||"").trim(), purpose:(r[idx.purpose]||"").trim(), note:(r[idx.note]||"").trim()
+    amount:r[idx.amount], person:(r[idx.person]||"").trim(), purpose:(r[idx.purpose]||"").trim(),
+    pay: idx.pay>-1?(r[idx.pay]||"").trim():"", by: idx.by>-1?(r[idx.by]||"").trim():"", note:(r[idx.note]||"").trim()
   }));
 }
 function normalize(o){
   return { id:o.id||uid(), date:(o.date||todayStr()).slice(0,10),
     recordedAt:(o.recordedAt||"").trim(),
     amount: isNaN(parseFloat(o.amount))?0:parseFloat(o.amount),
-    person:o.person||"", purpose:o.purpose||"", note:o.note||"" };
+    person:o.person||"", purpose:o.purpose||"", pay:o.pay||"", by:o.by||"", note:o.note||"" };
 }
 function csvParse(text){
   const rows=[]; let row=[],cur="",q=false;
@@ -1545,7 +1553,7 @@ async function doSetup(){
   const name=lgSetupName.value.trim(), label=lgSetupLabel.value.trim()||name;
   const owner=lgSetupOwner.value.trim(), repo=lgSetupRepo.value.trim();
   const token=lgSetupToken.value.trim(), pw=lgSetupPw.value;
-  const path="vault.json", branch="main";
+  const path=(lgSetupPath.value.trim()||"vault.json"), branch="main";
   if(!name||!owner||!repo||!token||!pw){ lgSetupMsg.textContent="请完整填写账号、owner、repo、令牌、密码。"; return; }
   if(pw.length<6){ lgSetupMsg.textContent="密码太短，至少 6 位。"; return; }
   lgSetupBtn.disabled=true; lgSetupBtn.textContent="处理中…";
