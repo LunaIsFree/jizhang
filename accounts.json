@@ -7,6 +7,14 @@
       "repo": "jizhang-luna",
       "branch": "main",
       "path": "vault.json"
+    },
+    {
+      "name": "hong",
+      "label": "小红",
+      "owner": "LunaIsFree",
+      "repo": "jizhang-data",
+      "branch": "main",
+      "path": "vault-hong.json"
     }
   ]
 }
